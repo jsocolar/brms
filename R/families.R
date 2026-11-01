@@ -1081,6 +1081,13 @@ mixture <- function(..., flist = NULL, nmix = 1, order = NULL, refcat = NULL) {
 #'   (\code{TRUE}; the default) over observations in Stan?
 #'   If \code{FALSE}, the Stan code will be written in a vectorized
 #'   manner over observations if possible.
+#'   For \code{loop = FALSE}, an auxiliary entry such as
+#'   \code{vars = "vint1[slice]"} passes the current observation-row slice
+#'   under threading and the complete vector in serial models. Bare variable
+#'   names remain shared and unsliced. No other indices are rewritten.
+#'   Use response additions \code{vint()} or \code{vreal()} for model-frame
+#'   aligned row data; \code{stanvar()} data are shared verbatim and their
+#'   dimensions and alignment are the author's responsibility.
 #' @param specials A character vector of special options to enable
 #'   for this custom family. Currently for internal use only.
 #' @param threshold Optional threshold type for custom ordinal families.
