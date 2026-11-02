@@ -111,6 +111,7 @@ standata.default <- function(object, data, family = gaussian(), prior = NULL,
                       only_response = FALSE, internal = FALSE, ...) {
 
   stopifnot(is.anybrmsframe(bframe))
+  validate_block_threads(threads, bframe)
   check_response <- as_one_logical(check_response)
   only_response <- as_one_logical(only_response)
   internal <- as_one_logical(internal)
@@ -132,9 +133,21 @@ standata.default <- function(object, data, family = gaussian(), prior = NULL,
   }
   out$prior_only <- as.integer(is_prior_only(prior))
   if (use_threading(threads)) {
+    schedule_N <- out$N
+    if (!is.null(threads$blocks)) {
+      if (length(threads$blocks) != out$N ||
+          length(attr(data, "na.action")) || length(attr(data, "old_order"))) {
+        stop2("Block IDs must match all model rows; missing-row removal and reordering are unsupported.")
+      }
+      sizes <- rle(match(threads$blocks, unique(threads$blocks)))$lengths
+      out$N_blocks <- length(sizes)
+      out$block_end <- as.array(as.integer(cumsum(sizes)))
+      out$block_start <- as.array(as.integer(c(1L, head(cumsum(sizes), -1L) + 1L)))
+      schedule_N <- out$N_blocks
+    }
     out$grainsize <- threads$grainsize
     if (is.null(out$grainsize)) {
-      out$grainsize <- ceiling(out$N / (2 * threads$threads))
+      out$grainsize <- ceiling(schedule_N / (2 * threads$threads))
       out$grainsize <- max(100, out$grainsize)
     }
   }

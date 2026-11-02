@@ -59,7 +59,13 @@ details.}
 \item{loop}{Logical; Should the likelihood be evaluated via a loop
 (\code{TRUE}; the default) over observations in Stan?
 If \code{FALSE}, the Stan code will be written in a vectorized
-manner over observations if possible.}
+manner over observations if possible.
+
+For \code{loop = FALSE}, \code{vars = "vint1[slice]"} passes the current
+row slice under threading and the full vector in serial models. Bare names
+remain shared. Use \code{vint()} or \code{vreal()} for model-frame aligned
+row data. Data supplied by \code{stanvar()} are shared verbatim; authors
+are responsible for their dimensions and alignment.}
 
 \item{specials}{A character vector of special options to enable
 for this custom family. Currently for internal use only.}

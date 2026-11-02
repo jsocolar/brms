@@ -999,6 +999,10 @@ stan_log_lik_custom <- function(bterms, threads = NULL, ...) {
   if (no_loop && any(has_n_index)) {
     stop2("Invalid use of index '[n]' in an unlooped custom likelihood.")
   }
+  if (any(var_indices == "[slice]") && !no_loop) {
+    stop2("Index '[slice]' requires loop = FALSE.")
+  }
+  var_indices[var_indices == "[slice]"] <- stan_slice(threads)
   var_indices <- ifelse(has_n_index, n, var_indices)
   is_var_adterms <- var_names %in% c("se", "trials", "dec") |
     grepl("^((vint)|(vreal))[[:digit:]]+$", var_names)

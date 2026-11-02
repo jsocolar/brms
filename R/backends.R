@@ -488,6 +488,18 @@ require_backend <- function(backend, x) {
 #' slow running model that cannot be sped up by any other means.
 #'
 #' @param threads Number of threads to use in within-chain parallelization.
+#' @param blocks Optional vector with one block ID per input data row. Blocks
+#'   must occupy contiguous rows. Experimental: requires a single-response
+#'   vectorized custom family. Predictors supported by ordinary threading are
+#'   allowed, including splines, monotonic effects and nonlinear formulas.
+#'   Nonlinear expressions must preserve their meaning on arbitrary chunks;
+#'   rowwise expressions do, but vector reductions such as means may not.
+#'   Missing-row removal, response subsetting and
+#'   automatic reordering are unsupported. Grainsize counts blocks when set.
+#'   The likelihood must handle any chunk of complete blocks; see
+#'   \code{custom_family} for explicit auxiliary slicing via \code{[slice]}.
+#'   Distribute large blocks throughout the row order by reordering whole
+#'   blocks only, preserving meaningful order within each block.
 #' @param grainsize Number of observations evaluated together in one chunk on
 #'   one of the CPUs used for threading. If \code{NULL} (the default),
 #'   \code{grainsize} is currently chosen as \code{max(100, N / (2 *
@@ -530,7 +542,7 @@ require_backend <- function(backend, x) {
 #'
 #' @export
 threading <- function(threads = NULL, grainsize = NULL, static = FALSE,
-                      force = FALSE) {
+                      force = FALSE, blocks = NULL) {
   out <- list(threads = NULL, grainsize = NULL)
   class(out) <- "brmsthreads"
   if (!is.null(threads)) {
@@ -549,6 +561,21 @@ threading <- function(threads = NULL, grainsize = NULL, static = FALSE,
   }
   out$static <- as_one_logical(static)
   out$force <- as_one_logical(force)
+  if (!is.null(blocks)) {
+    if (!(is.character(blocks) || is.numeric(blocks) || is.factor(blocks)) ||
+        !is.null(dim(blocks)) || !length(blocks) || anyNA(blocks) ||
+        (is.numeric(blocks) && any(!is.finite(blocks)))) {
+      stop2("blocks must be a nonempty vector of nonmissing finite IDs.")
+    }
+    ids <- match(blocks, unique(blocks))
+    if (anyDuplicated(rle(ids)$values)) {
+      stop2("Each block must occupy contiguous rows; interleaved blocks are unsupported.")
+    }
+    if (is.null(threads) || out$force) {
+      stop2("blocks requires active, non-forced threading.")
+    }
+    out$blocks <- blocks
+  }
   out
 }
 
@@ -579,6 +606,24 @@ use_threading <- function(threads, force = FALSE) {
     out <- out && !isTRUE(threads$force)
   }
   out
+}
+
+# Validate the block partition; predictor compatibility follows ordinary threading.
+validate_block_threads <- function(threads, bterms) {
+  if (is.null(threads$blocks)) {
+    return(invisible(NULL))
+  }
+  if (!is.brmsterms(bterms) || !is.customfamily(bterms$family) ||
+      !isFALSE(bterms$family$loop) ||
+      length(setdiff(names(bterms$adforms), c("vint", "vreal")))) {
+    stop2("Block threading requires a single-response, loop = FALSE custom family ",
+          "with only vint/vreal response additions.")
+  }
+  if (isTRUE(bterms$frame$rows_changed) ||
+      length(threads$blocks) != length(bterms$frame$resp$values)) {
+    stop2("Block IDs must match all model rows; missing-row removal and reordering are unsupported.")
+  }
+  invisible(NULL)
 }
 
 #' GPU support in Stan via OpenCL

@@ -9,6 +9,13 @@ cran-comments.md
 .RData
 .RProfile
 .DS_Store
+._*
+.AppleDouble/
+.LSOverride
+
+# Local agent configuration
+.codex/
+.agents/
 
 # Test artifacts and local test models
 tests/testthat/Rplots.pdf
