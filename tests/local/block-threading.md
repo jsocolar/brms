@@ -7,10 +7,13 @@ one contiguous run. No rows are reordered. Grainsize counts blocks, not rows;
 the existing default heuristic is retained (minimum 100), so explicitly choose
 a smaller grainsize for small numbers of blocks.
 
-This prototype supports a single response, `custom_family(loop = FALSE)`, ordinary
-linear distributional formulas, fixed effects and random intercepts. Other
-predictor terms, nonlinear formulas, response additions other than `vint`/`vreal`,
-missing-row removal, and automatic row reordering are rejected. Prepare complete
+This prototype supports a single response and `custom_family(loop = FALSE)`.
+Predictor compatibility follows ordinary brms threading: splines, monotonic
+effects, nonlinear formulas, random slopes and offsets are allowed. Existing
+threading restrictions (for example sparse matrices and unsupported
+ARMA/covariance-based dependence structures) still apply. Response additions
+other than `vint`/`vreal`, missing-row removal and automatic row reordering are
+rejected. Prepare complete
 data before supplying IDs; externally subset/reorder data and IDs together.
 Block IDs are stored in the threading configuration: when updating a fit with
 new data, supply a matching new threading configuration. Equal-length changes
@@ -22,6 +25,18 @@ predictor and response slicing. No predictor generator needs a block-specific
 branch. Centering, design matrices, contrasts, parameterization and priors remain
 global. Group-effect transformations and long parameter vectors remain global.
 No Stan compiler or Stan Math modifications are needed.
+
+Nonlinear expressions must preserve their meaning when evaluated on arbitrary
+chunks. Rowwise expressions satisfy this; vector reductions such as `mean()`
+over a predictor vector generally do not. This is an author responsibility,
+just as in ordinary threading; no expression analysis is attempted. Global
+latent transformations (including some GP computations) may remain outside the
+worker, so allowing a predictor does not imply parallelizing all its work.
+
+Keeping complete blocks after sorting is insufficient by itself: block IDs and
+row-level auxiliary inputs must follow the permutation, and dependence must
+stay within each block. This prototype does not infer or validate those
+relationships, and retains the prohibition on automatic ordering.
 
 ## Custom likelihood contract
 
@@ -75,7 +90,7 @@ leave-one-block-out validation. New-data prediction can require an updated block
 specification if it regenerates threaded Stan data.
 
 The implementation is small enough for an experimental branch and an upstream
-API discussion. Broader formula support, a stable integration-test harness,
+API discussion. A stable integration-test harness,
 block-aware cross-validation and new-data/update ergonomics need separate review
 before calling it a general supported feature.
 
@@ -99,3 +114,21 @@ and CmdStanR 0.9.0.9000:
 The checkout required `future >= 1.80.0`; a temporary library at
 `/private/tmp/brms-block-lib` supplied it for these tests. Set
 `R_LIBS=/private/tmp/brms-block-lib` to reproduce on this machine.
+
+## Extended predictor checks
+
+Set `BLOCK_PREDICTOR=extended`, `nonlinear` or `vectorized` when running the
+numerical script to exercise splines, monotonic effects, random slopes and
+offsets, or rowwise nonlinear expressions with both loop settings. Each scenario
+uses the same joint likelihood, alternate partitions, parameter comparisons and
+post-processing checks as the original `linear` scenario. The focused tests
+also verify that worker bodies match ordinary threading and that shared Stan
+data (including global basis construction) match serial generation.
+
+On 2026-11-02, all three additional scenarios passed their initial comparison
+and 18 alternate-data/parameter comparisons at tolerance `1e-10`, along with
+boundary, alignment, fitting and post-processing checks. The short fits reported
+some divergent transitions and remain execution checks only. The revised
+focused suite passed 46 assertions; the existing Stan-code and Stan-data suites
+again passed 729 and 284 assertions respectively, with the same six skips.
+The modified Rd file parsed and `git diff --check` passed.

@@ -490,8 +490,11 @@ require_backend <- function(backend, x) {
 #' @param threads Number of threads to use in within-chain parallelization.
 #' @param blocks Optional vector with one block ID per input data row. Blocks
 #'   must occupy contiguous rows. Experimental: requires a single-response
-#'   vectorized custom family and ordinary linear predictors (fixed effects
-#'   and random intercepts). Missing-row removal, response subsetting and
+#'   vectorized custom family. Predictors supported by ordinary threading are
+#'   allowed, including splines, monotonic effects and nonlinear formulas.
+#'   Nonlinear expressions must preserve their meaning on arbitrary chunks;
+#'   rowwise expressions do, but vector reductions such as means may not.
+#'   Missing-row removal, response subsetting and
 #'   automatic reordering are unsupported. Grainsize counts blocks when set.
 #'   The likelihood must handle any chunk of complete blocks; see
 #'   \code{custom_family} for explicit auxiliary slicing via \code{[slice]}.
@@ -605,13 +608,13 @@ use_threading <- function(threads, force = FALSE) {
   out
 }
 
-# Keep the prototype deliberately limited to predictors with established row slicing.
+# Validate the block partition; predictor compatibility follows ordinary threading.
 validate_block_threads <- function(threads, bterms) {
   if (is.null(threads$blocks)) {
     return(invisible(NULL))
   }
   if (!is.brmsterms(bterms) || !is.customfamily(bterms$family) ||
-      !isFALSE(bterms$family$loop) || length(bterms$nlpars) ||
+      !isFALSE(bterms$family$loop) ||
       length(setdiff(names(bterms$adforms), c("vint", "vreal")))) {
     stop2("Block threading requires a single-response, loop = FALSE custom family ",
           "with only vint/vreal response additions.")
@@ -619,15 +622,6 @@ validate_block_threads <- function(threads, bterms) {
   if (isTRUE(bterms$frame$rows_changed) ||
       length(threads$blocks) != length(bterms$frame$resp$values)) {
     stop2("Block IDs must match all model rows; missing-row removal and reordering are unsupported.")
-  }
-  for (dp in bterms$dpars) {
-    if (!is.btl(dp) || any(vapply(dp[c("cs", "sp", "sm", "gp", "ac", "offset")],
-                                   function(x) !is.null(x), logical(1)))) {
-      stop2("Block threading supports ordinary linear distributional formulas only.")
-    }
-  }
-  if (NROW(bterms$frame$re) && any(bterms$frame$re$coef != "Intercept")) {
-    stop2("Block threading currently supports random intercepts only.")
   }
   invisible(NULL)
 }

@@ -64,8 +64,40 @@ test_that("invalid partitions and unsupported models fail explicitly", {
                threads = threading(2, blocks = 1:5)), "match all model rows")
   expect_error(make_stancode(y | subset(x > 2) ~ x, z$data,
                family = z$family, threads = th), "response additions")
-  expect_error(make_stancode(y ~ s(x, k = 3), z$data, family = z$family, threads = th),
-               "ordinary linear")
-  expect_error(make_stancode(y ~ x + (x | g), z$data, family = z$family, threads = th),
-               "random intercepts")
+  # Existing threading guards still apply, including when ordering is absent.
+  expect_error(make_stancode(bf(y ~ x, sparse = TRUE), z$data,
+               family = z$family, threads = th), "sparse matrices")
+  z$data$t <- c(2, 1, 2, 1, 2, 1)
+  expect_error(make_stancode(y ~ x + ar(time = t, gr = g), z$data,
+               family = z$family, threads = th), "reordering")
+})
+
+test_that("block predictors inherit ordinary threading support", {
+  z <- block_fixture()
+  z$data$ord <- ordered(rep(1:3, 2))
+  formulas <- list(
+    bf(y | vint(id) ~ s(x, k = 3) + mo(ord) + offset(x) + (x | g),
+       sigma ~ s(x, k = 3)),
+    bf(y | vint(id) ~ a * exp(b * x), a ~ s(x, k = 3) + (x | g),
+       b ~ mo(ord), sigma ~ x, nl = TRUE),
+    bf(y | vint(id) ~ a + exp(b + x), a ~ s(x, k = 3) + (x | g),
+       b ~ mo(ord), sigma ~ x, nl = TRUE, loop = FALSE)
+  )
+  for (f in formulas) {
+    ordinary <- make_stancode(f, z$data, family = z$family, threads = 2)
+    block <- make_stancode(f, z$data, family = z$family,
+                          threads = threading(2, blocks = z$data$id))
+    # Apart from scheduling declarations, the entire worker body is identical.
+    body <- function(code) {
+      begin <- regexpr("    real ptarget = 0;", code, fixed = TRUE)[1]
+      end <- regexpr("    return ptarget;", code, fixed = TRUE)[1]
+      substr(code, begin, end)
+    }
+    expect_true(nchar(body(block)) > 100)
+    expect_identical(body(block), body(ordinary))
+    sd <- make_standata(f, z$data, family = z$family)
+    bd <- make_standata(f, z$data, family = z$family,
+                       threads = threading(2, blocks = z$data$id))
+    expect_equal(lapply(bd[names(sd)], identity), lapply(sd, identity))
+  }
 })

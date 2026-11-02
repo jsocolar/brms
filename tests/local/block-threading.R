@@ -29,10 +29,27 @@ real block_normal_lpdf(vector y, vector mu, vector sigma,
 }'
 d <- data.frame(y = rnorm(9), x = seq(-1, 1, length.out = 9),
                 g = rep(1:3, 3), id = rep(1:4, c(2, 1, 4, 2)), row = 1:9)
-f <- bf(y | vint(id, row) ~ x + (1 | g), sigma ~ x)
+scenario <- Sys.getenv("BLOCK_PREDICTOR", "linear")
+d$ord <- ordered(rep(1:3, 3))
+f <- switch(scenario,
+  linear = bf(y | vint(id, row) ~ x + (1 | g), sigma ~ x),
+  extended = bf(y | vint(id, row) ~ s(x, k = 3) + mo(ord) +
+                  offset(x) + (x | g), sigma ~ s(x, k = 3)),
+  nonlinear = bf(y | vint(id, row) ~ a * exp(b * x),
+                 a ~ s(x, k = 3) + (x | g), b ~ mo(ord), sigma ~ x, nl = TRUE),
+  vectorized = bf(y | vint(id, row) ~ a + exp(b + x),
+                  a ~ s(x, k = 3) + (x | g), b ~ mo(ord), sigma ~ x,
+                  nl = TRUE, loop = FALSE),
+  stop("Unknown BLOCK_PREDICTOR"))
 sv <- stanvar(scode = fun, block = "functions") +
   stanvar(x = as.array(d$id), name = "global_id")
-p <- prior(normal(0, 1), class = b) + prior(normal(0, 1), class = b, dpar = sigma)
+p <- if (scenario %in% c("nonlinear", "vectorized")) {
+  prior(normal(0, 1), class = b, nlpar = a) +
+    prior(normal(0, 1), class = b, nlpar = b) +
+    prior(normal(0, 1), class = b, dpar = sigma)
+} else {
+  prior(normal(0, 1), class = b) + prior(normal(0, 1), class = b, dpar = sigma)
+}
 serial <- brm(f, d, family = fam, stanvars = sv, prior = p,
   backend = "cmdstanr", chains = 1, iter = 40, warmup = 20, seed = 123,
   refresh = 0)
@@ -45,12 +62,12 @@ sf <- attr(serial$fit, "CmdStanModel")$sample(data = standata(serial),
 bf <- attr(blocked$fit, "CmdStanModel")$sample(data = standata(blocked),
   chains = 1, iter_warmup = 0, iter_sampling = 1, fixed_param = TRUE, adapt_engaged = FALSE,
   threads_per_chain = 2, refresh = 0)
-u <- rep(0.1, 8)
+u <- rep(0.1, dim(sf$unconstrain_draws())[3])
 stopifnot(isTRUE(all.equal(sf$log_prob(u), bf$log_prob(u), tolerance = 1e-10)),
           isTRUE(all.equal(sf$grad_log_prob(u), bf$grad_log_prob(u), tolerance = 1e-10)))
 stopifnot(all(dim(posterior_epred(blocked)) == c(20, 9)),
           all(dim(posterior_linpred(blocked)) == c(20, 9)),
-          nrow(fixef(blocked)) == 4, length(ranef(blocked)) == 1)
+          nrow(fixef(blocked)) > 0, length(ranef(blocked)) == 1)
 # Same compiled models, different data: exercise singletons, a single block,
 # unequal blocks and a task containing all blocks, with several parameter points.
 for (ids in list(1:9, rep(1L, 9), d$id)) {
@@ -75,4 +92,4 @@ for (ids in list(1:9, rep(1L, 9), d$id)) {
     }
   }
 }
-cat("Block density, gradient, boundary, fit and post-processing checks passed.\n")
+cat(scenario, ": block density, gradient, boundary, fit and post-processing checks passed.\n")

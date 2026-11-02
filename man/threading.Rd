@@ -11,7 +11,10 @@ threading(threads = NULL, grainsize = NULL, static = FALSE, force = FALSE, block
 
 \item{blocks}{Optional vector of block IDs, one per input row. Blocks must
 be contiguous. Experimental support is limited to single-response vectorized
-custom families with ordinary linear predictors and random intercepts.
+custom families with predictors supported by ordinary threading, including
+splines, monotonic effects and nonlinear formulas. Nonlinear expressions must
+preserve their meaning on arbitrary chunks; rowwise expressions do, but vector
+reductions such as means may not.
 Missing-row removal, response subsetting and automatic reordering are rejected.
 Grainsize counts blocks. The likelihood must handle arbitrary complete-block
 chunks. Use explicit \code{[slice]} auxiliary indices for row-aligned inputs.
