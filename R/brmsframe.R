@@ -117,9 +117,7 @@ initialize_frame <- function(x, data, basis = NULL, ...) {
   out <- list(
     re = frame_re(x, data = data, old_levels = old_levels),
     me = frame_me(x, data = data, old_levels = old_levels),
-    index = frame_index(x, data = data),
-    rows_changed = length(attr(data, "na.action")) > 0L ||
-      length(attr(data, "old_order")) > 0L
+    index = frame_index(x, data = data)
   )
   if (!is.null(old_levels)) {
     # this can only happen in post-processing potentially with newdata

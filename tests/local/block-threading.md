@@ -1,8 +1,8 @@
 # Experimental block threading
 
-Use `threads = threading(2, blocks = data$block, grainsize = 1)` in `brm()`,
-`make_stancode()` or `make_standata()`. Supply one character, numeric or factor
-ID per input row. IDs need not be consecutive integers. Each ID must occur in
+Use `threads = threading(2, block_var = "block", grainsize = 1)` in `brm()`,
+`make_stancode()` or `make_standata()`. The named column must contain one character, numeric or factor
+ID per input row. It need not appear in the model formula. IDs need not be consecutive integers. Each ID must occur in
 one contiguous run. No rows are reordered. Grainsize counts blocks, not rows;
 the existing default heuristic is retained (minimum 100), so explicitly choose
 a smaller grainsize for small numbers of blocks.
@@ -15,9 +15,9 @@ ARMA/covariance-based dependence structures) still apply. Response additions
 other than `vint`/`vreal`, missing-row removal and automatic row reordering are
 rejected. Prepare complete
 data before supplying IDs; externally subset/reorder data and IDs together.
-Block IDs are stored in the threading configuration: when updating a fit with
-new data, supply a matching new threading configuration. Equal-length changes
-cannot be detected automatically.
+The threading configuration stores only the column name. Updates and new-data
+validation retrieve fresh IDs from that column, which must be present in the
+new data. The old vector-valued `blocks` argument has been replaced.
 
 The callback schedules a sequence of distinct block ordinals, maps its first
 and last scheduled blocks to row bounds, and uses brms's existing `start:end`
@@ -42,7 +42,7 @@ relationships, and retains the prohibition on automatic ordering.
 
 The likelihood must accept *any contiguous chunk of complete blocks*, including
 several blocks and the entire dataset. It must identify/reset at internal block
-boundaries itself. `blocks` controls scheduling only; it does not automatically
+boundaries itself. `block_var` controls scheduling only; it does not automatically
 supply block labels to the custom likelihood.
 
 For example, use `y | vint(block, row_id) ~ ...` together with
@@ -132,3 +132,29 @@ some divergent transitions and remain execution checks only. The revised
 focused suite passed 46 assertions; the existing Stan-code and Stan-data suites
 again passed 729 and 284 assertions respectively, with the same six skips.
 The modified Rd file parsed and `git diff --check` passed.
+
+
+## Column-based API
+
+The vector-valued `blocks` argument has been replaced by `block_var = "column"`.
+The column is resolved from each dataset, validated before model-frame creation,
+and appended afterwards only if it was not already retained by the formula.
+This leaves model terms, basis construction and predictor contrasts unchanged.
+Scheduling-only labels are exempt from predictor type/level checks on new data;
+columns also used in the formula retain those checks. All new datasets must
+include the column. The column is not automatically passed to the likelihood:
+use `vint`/`vreal` and the explicit auxiliary slicing contract when needed.
+
+Only the block path enters the retention helper. Ordinary data validation
+continues through its existing body. The earlier unconditional `rows_changed`
+model-frame field has been removed; row-change checks live in block validation.
+
+On 2026-11-11, 64 focused assertions passed, including scheduling-only columns,
+new datasets with different IDs/row counts, update without recompilation,
+missing-column rejection, and preservation of predictor contrasts. Existing
+Stan-code, Stan-data, data-helper and brm suites passed 729, 284, 13 and 23
+assertions respectively, with eight existing skips. Generated Stan code and
+Stan data were identical to the previous vector API for four equivalent
+linear, extended and nonlinear predictor scenarios. No new numerical fits were
+needed for this API-only change. The modified Rd file parsed and
+`git diff --check` passed.

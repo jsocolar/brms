@@ -85,10 +85,11 @@ stancode.default <- function(object, data, family = gaussian(),
     get_data2_autocor(object),
     get_data2_cov_ranef(object)
   )
+  threads <- validate_threads(threads)
   data <- validate_data(
     data, bterms = bterms,
     data2 = data2, knots = knots,
-    drop_unused_levels = drop_unused_levels
+    drop_unused_levels = drop_unused_levels, block_var = threads$block_var
   )
   bframe <- brmsframe(bterms, data)
   prior <- .validate_prior(
@@ -96,7 +97,6 @@ stancode.default <- function(object, data, family = gaussian(),
     sample_prior = sample_prior
   )
   stanvars <- validate_stanvars(stanvars, stan_funs = stan_funs)
-  threads <- validate_threads(threads)
 
  .stancode(
    bframe, prior = prior, stanvars = stanvars, threads = threads,
@@ -140,7 +140,7 @@ stancode.default <- function(object, data, family = gaussian(),
         scode_re[["pll_args"]],
         scode_Xme[["pll_args"]],
         collapse_stanvars_pll_args(stanvars),
-        if (!is.null(threads$blocks)) ", data array[] int block_start, data array[] int block_end" else ""
+        if (!is.null(threads$block_var)) ", data array[] int block_start, data array[] int block_end" else ""
       )
       partial_log_lik <- paste0(
         scode_predictor[[i]][["pll_def"]],
@@ -162,9 +162,9 @@ stancode.default <- function(object, data, family = gaussian(),
       partial_log_lik <- paste0(
         "// compute partial sums of the log-likelihood\n",
         "real partial_log_lik", resp, "_lpmf(array[] int seq", resp,
-        if (is.null(threads$blocks)) ", int start, int end" else
+        if (is.null(threads$block_var)) ", int start, int end" else
           ", int block_first, int block_last", pll_args$typed, ") {\n",
-        if (!is.null(threads$blocks)) paste0(
+        if (!is.null(threads$block_var)) paste0(
           "  int start = block_start[block_first];\n",
           "  int end = block_end[block_last];\n"),
         "  real ptarget = 0;\n",
@@ -180,11 +180,11 @@ stancode.default <- function(object, data, family = gaussian(),
         "  target += reduce_sum", static, "(partial_log_lik", resp, "_lpmf",
         ", seq", resp, ", grainsize", pll_args$plain, ");\n"
       )
-      schedule_N <- if (is.null(threads$blocks)) paste0("N", resp) else "N_blocks"
+      schedule_N <- if (is.null(threads$block_var)) paste0("N", resp) else "N_blocks"
       str_add(scode_predictor[[i]][["tdata_def"]]) <- glue(
         "  array[{schedule_N}] int seq{resp} = sequence(1, {schedule_N});\n"
       )
-      if (!is.null(threads$blocks)) {
+      if (!is.null(threads$block_var)) {
         str_add(scode_predictor[[i]][["data"]]) <- paste0(
           "  int<lower=1> N_blocks;\n",
           "  array[N_blocks] int<lower=1, upper=N> block_start;\n",

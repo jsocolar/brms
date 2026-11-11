@@ -488,7 +488,8 @@ require_backend <- function(backend, x) {
 #' slow running model that cannot be sped up by any other means.
 #'
 #' @param threads Number of threads to use in within-chain parallelization.
-#' @param blocks Optional vector with one block ID per input data row. Blocks
+#' @param block_var Optional name of a column in data containing one block ID
+#'   per row. The column is retained even if absent from the formula. Blocks
 #'   must occupy contiguous rows. Experimental: requires a single-response
 #'   vectorized custom family. Predictors supported by ordinary threading are
 #'   allowed, including splines, monotonic effects and nonlinear formulas.
@@ -542,7 +543,7 @@ require_backend <- function(backend, x) {
 #'
 #' @export
 threading <- function(threads = NULL, grainsize = NULL, static = FALSE,
-                      force = FALSE, blocks = NULL) {
+                      force = FALSE, block_var = NULL) {
   out <- list(threads = NULL, grainsize = NULL)
   class(out) <- "brmsthreads"
   if (!is.null(threads)) {
@@ -561,20 +562,15 @@ threading <- function(threads = NULL, grainsize = NULL, static = FALSE,
   }
   out$static <- as_one_logical(static)
   out$force <- as_one_logical(force)
-  if (!is.null(blocks)) {
-    if (!(is.character(blocks) || is.numeric(blocks) || is.factor(blocks)) ||
-        !is.null(dim(blocks)) || !length(blocks) || anyNA(blocks) ||
-        (is.numeric(blocks) && any(!is.finite(blocks)))) {
-      stop2("blocks must be a nonempty vector of nonmissing finite IDs.")
-    }
-    ids <- match(blocks, unique(blocks))
-    if (anyDuplicated(rle(ids)$values)) {
-      stop2("Each block must occupy contiguous rows; interleaved blocks are unsupported.")
+  if (!is.null(block_var)) {
+    if (!is.character(block_var) || length(block_var) != 1L ||
+        is.na(block_var) || !nzchar(block_var)) {
+      stop2("block_var must be a single nonempty column name.")
     }
     if (is.null(threads) || out$force) {
-      stop2("blocks requires active, non-forced threading.")
+      stop2("block_var requires active, non-forced threading.")
     }
-    out$blocks <- blocks
+    out$block_var <- block_var
   }
   out
 }
@@ -610,7 +606,7 @@ use_threading <- function(threads, force = FALSE) {
 
 # Validate the block partition; predictor compatibility follows ordinary threading.
 validate_block_threads <- function(threads, bterms) {
-  if (is.null(threads$blocks)) {
+  if (is.null(threads$block_var)) {
     return(invisible(NULL))
   }
   if (!is.brmsterms(bterms) || !is.customfamily(bterms$family) ||
@@ -618,10 +614,6 @@ validate_block_threads <- function(threads, bterms) {
       length(setdiff(names(bterms$adforms), c("vint", "vreal")))) {
     stop2("Block threading requires a single-response, loop = FALSE custom family ",
           "with only vint/vreal response additions.")
-  }
-  if (isTRUE(bterms$frame$rows_changed) ||
-      length(threads$blocks) != length(bterms$frame$resp$values)) {
-    stop2("Block IDs must match all model rows; missing-row removal and reordering are unsupported.")
   }
   invisible(NULL)
 }

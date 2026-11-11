@@ -54,7 +54,7 @@ serial <- brm(f, d, family = fam, stanvars = sv, prior = p,
   backend = "cmdstanr", chains = 1, iter = 40, warmup = 20, seed = 123,
   refresh = 0)
 blocked <- brm(f, d, family = fam, stanvars = sv, prior = p,
-  threads = threading(2, grainsize = 1, static = TRUE, blocks = d$id),
+  threads = threading(2, grainsize = 1, static = TRUE, block_var = "id"),
   backend = "cmdstanr", chains = 1, iter = 40, warmup = 20, seed = 123,
   refresh = 0)
 sf <- attr(serial$fit, "CmdStanModel")$sample(data = standata(serial),
@@ -77,7 +77,7 @@ for (ids in list(1:9, rep(1L, 9), d$id)) {
   for (grain in c(1L, 100L)) {
     sd <- make_standata(f, dd, family = fam, prior = p, stanvars = vv)
     bd <- make_standata(f, dd, family = fam, prior = p, stanvars = vv,
-      threads = threading(2, grainsize = grain, static = TRUE, blocks = ids))
+      threads = threading(2, grainsize = grain, static = TRUE, block_var = "id"))
     # Test-only use of CmdStanR internals to reuse compiled autodiff modules.
     # Reinitialize model data without recompiling the same C++ module 12 times.
     for (pair in list(list(sf, sd), list(bf, bd))) {
