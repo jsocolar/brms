@@ -142,7 +142,7 @@ standata.default <- function(object, data, family = gaussian(), prior = NULL,
       sizes <- rle(match(threads$blocks, unique(threads$blocks)))$lengths
       out$N_blocks <- length(sizes)
       out$block_end <- as.array(as.integer(cumsum(sizes)))
-      out$block_start <- as.array(as.integer(c(1L, head(cumsum(sizes), -1L) + 1L)))
+      out$block_start <- as.array(as.integer(c(1L, utils::head(cumsum(sizes), -1L) + 1L)))
       schedule_N <- out$N_blocks
     }
     out$grainsize <- threads$grainsize
