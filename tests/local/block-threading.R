@@ -1,5 +1,5 @@
 # Run from repository root with Rscript tests/local/block-threading.R.
-# Requires cmdstanr, CmdStan and the package development dependencies.
+# Requires RStan with threading support and the package development dependencies.
 devtools::load_all()
 set.seed(123)
 fam <- custom_family("block_normal", dpars = c("mu", "sigma"),
@@ -51,20 +51,31 @@ p <- if (scenario %in% c("nonlinear", "vectorized")) {
   prior(normal(0, 1), class = b) + prior(normal(0, 1), class = b, dpar = sigma)
 }
 serial <- brm(f, d, family = fam, stanvars = sv, prior = p,
-  backend = "cmdstanr", chains = 1, iter = 40, warmup = 20, seed = 123,
+  backend = "rstan", chains = 1, iter = 40, warmup = 20, seed = 123,
   refresh = 0)
 blocked <- brm(f, d, family = fam, stanvars = sv, prior = p,
   threads = threading(2, grainsize = 1, static = TRUE, block_var = "id"),
-  backend = "cmdstanr", chains = 1, iter = 40, warmup = 20, seed = 123,
+  backend = "rstan", chains = 1, iter = 40, warmup = 20, seed = 123,
   refresh = 0)
-sf <- attr(serial$fit, "CmdStanModel")$sample(data = standata(serial),
-  chains = 1, iter_warmup = 0, iter_sampling = 1, fixed_param = TRUE, adapt_engaged = FALSE, refresh = 0)
-bf <- attr(blocked$fit, "CmdStanModel")$sample(data = standata(blocked),
-  chains = 1, iter_warmup = 0, iter_sampling = 1, fixed_param = TRUE, adapt_engaged = FALSE,
-  threads_per_chain = 2, refresh = 0)
-u <- rep(0.1, dim(sf$unconstrain_draws())[3])
-stopifnot(isTRUE(all.equal(sf$log_prob(u), bf$log_prob(u), tolerance = 1e-10)),
-          isTRUE(all.equal(sf$grad_log_prob(u), bf$grad_log_prob(u), tolerance = 1e-10)))
+# brm() restores RStan's threading option after fitting. Enable two threads
+# explicitly for the model instances used by the density/gradient checks.
+rstan::rstan_options(threads_per_chain = 2L)
+serial_model <- rstan::get_stanmodel(serial$fit)
+block_model <- rstan::get_stanmodel(blocked$fit)
+# chains = 0 initializes a model with data without running a sampler.
+sf <- rstan::sampling(serial_model, data = standata(serial), chains = 0,
+                      seed = 123)
+bf <- rstan::sampling(block_model, data = standata(blocked), chains = 0,
+                      seed = 123)
+u <- rep(0.1, length(rstan::unconstrain_pars(
+  serial$fit, rstan::get_inits(serial$fit)[[1]])))
+compare_targets <- function(serial_fit, block_fit, u) {
+  stopifnot(isTRUE(all.equal(rstan::log_prob(serial_fit, u),
+                            rstan::log_prob(block_fit, u), tolerance = 1e-10)),
+            isTRUE(all.equal(rstan::grad_log_prob(serial_fit, u),
+                            rstan::grad_log_prob(block_fit, u), tolerance = 1e-10)))
+}
+compare_targets(sf, bf, u)
 stopifnot(all(dim(posterior_epred(blocked)) == c(20, 9)),
           all(dim(posterior_linpred(blocked)) == c(20, 9)),
           nrow(fixef(blocked)) > 0, length(ranef(blocked)) == 1)
@@ -78,17 +89,11 @@ for (ids in list(1:9, rep(1L, 9), d$id)) {
     sd <- make_standata(f, dd, family = fam, prior = p, stanvars = vv)
     bd <- make_standata(f, dd, family = fam, prior = p, stanvars = vv,
       threads = threading(2, grainsize = grain, static = TRUE, block_var = "id"))
-    # Test-only use of CmdStanR internals to reuse compiled autodiff modules.
-    # Reinitialize model data without recompiling the same C++ module 12 times.
-    for (pair in list(list(sf, sd), list(bf, bd))) {
-      path <- tempfile(fileext = ".json")
-      cmdstanr::write_stan_json(pair[[2]], path)
-      cmdstanr:::initialize_model_pointer(
-        pair[[1]]$.__enclos_env__$private$model_methods_env_, path)
-    }
+    # Reuse compiled models with fresh data through RStan's public interface.
+    sf <- rstan::sampling(serial_model, data = sd, chains = 0, seed = 123)
+    bf <- rstan::sampling(block_model, data = bd, chains = 0, seed = 123)
     for (delta in c(0, 0.1, -0.2)) {
-      stopifnot(isTRUE(all.equal(sf$log_prob(u + delta), bf$log_prob(u + delta), tolerance = 1e-10)),
-                isTRUE(all.equal(sf$grad_log_prob(u + delta), bf$grad_log_prob(u + delta), tolerance = 1e-10)))
+      compare_targets(sf, bf, u + delta)
     }
   }
 }

@@ -73,15 +73,19 @@ boundaries, auxiliary slicing, two predictors, random intercepts, singleton and
 one-block data, and unchanged ordinary scheduling.
 
 Run `Rscript tests/local/block-threading.R` from the repository root for the
-small numerical integration test (requires development dependencies, CmdStanR
-and CmdStan). Its Gaussian Markov likelihood genuinely couples adjacent rows
+small numerical integration test (requires development dependencies and RStan
+with threading support). Its Gaussian Markov likelihood genuinely couples adjacent rows
 within blocks, checks global row IDs and rejects split boundaries. It compares
 serial/block log densities and autodiff gradients at identical unconstrained
 parameters, with unequal blocks, singleton blocks, one total block and grainsizes
 1 and 100. It also smoke-tests fitting, `fixef`, `ranef`, `posterior_linpred` and
 custom `posterior_epred`. The tiny chains are not convergence diagnostics.
-The alternate-data numerical harness uses a CmdStanR internal helper to reuse
-compiled autodiff modules; production code does not depend on that helper.
+The numerical harness uses RStan's public `get_stanmodel()` and
+`sampling(..., chains = 0)` interfaces to reuse compiled models with fresh data
+without sampling. Public `log_prob()` and `grad_log_prob()` calls compare the
+targets at identical unconstrained parameter values. It explicitly enables two
+threads for these evaluations, since `brm()` restores RStan's threading option
+after each fit. No CmdStan installation or private backend helper is required.
 
 Custom prediction and likelihood post-processing remain the author's job.
 This prototype does not add block-level `log_lik`, LOO, joint posterior prediction,
@@ -158,3 +162,20 @@ Stan data were identical to the previous vector API for four equivalent
 linear, extended and nonlinear predictor scenarios. No new numerical fits were
 needed for this API-only change. The modified Rd file parsed and
 `git diff --check` passed.
+
+
+## RStan numerical harness
+
+On 2026-11-11, the numerical harness was switched to RStan public APIs and
+rerun with RStan 2.32.7, StanHeaders 2.39.1 and R 4.5. All four scenarios
+(`linear`, `extended`, `nonlinear`, `vectorized`) passed their initial comparison
+and 18 alternate-data/parameter comparisons each: 76 paired density/gradient
+comparisons in total, using `all.equal(..., tolerance = 1e-10)`. Boundary and
+auxiliary-alignment checks passed, as did the tiny fits and post-processing
+checks. These runs exercise the current column-based API directly.
+
+Each serial/threaded fit reported two divergences in the linear, extended and
+nonlinear scenarios, and one in the vectorized scenario, along with short-chain
+R-hat/ESS warnings. These remain execution checks, not convergence evidence.
+The focused testthat suite also passed all 64 assertions with no warnings or
+skips, and `git diff --check` passed. No production code was changed.
