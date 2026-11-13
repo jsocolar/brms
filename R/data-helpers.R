@@ -10,10 +10,19 @@
 #   of variable names; fixes issue #73
 # @param knots: a list of knot values for GAMMs
 # @param data_name: optional name of the data frame as passed by the user
+# @param block_var optional scheduling column, retained only for block threading
 # @return model.frame for use in brms functions
 validate_data <- function(data, bterms, data2 = list(), knots = NULL,
                           na_action = na_omit, drop_unused_levels = TRUE,
-                          attr_terms = NULL, data_name = "") {
+                          attr_terms = NULL, data_name = "", block_var = NULL) {
+  if (!is.null(block_var)) {
+    return(validate_block_data(
+      data, block_var = block_var, bterms = bterms, data2 = data2,
+      knots = knots, na_action = na_action,
+      drop_unused_levels = drop_unused_levels,
+      attr_terms = attr_terms, data_name = data_name
+    ))
+  }
   if (missing(data)) {
     stop2("Data must be specified using the 'data' argument.")
   }
@@ -458,6 +467,11 @@ validate_newdata <- function(
     newdata[[v]] <- 1
   }
   mf <- model.frame(object)
+  if (!is.null(object$threads$block_var) &&
+      !object$threads$block_var %in% all_vars) {
+    # Scheduling-only labels are not predictors with fixed types or levels.
+    mf[[object$threads$block_var]] <- NULL
+  }
   for (i in seq_along(mf)) {
     if (is_like_factor(mf[[i]])) {
       mf[[i]] <- as.factor(mf[[i]])
@@ -595,7 +609,7 @@ validate_newdata <- function(
     newdata, bterms = bterms, na_action = na.pass,
     drop_unused_levels = FALSE, attr_terms = attr_terms,
     data2 = current_data2(object, newdata2),
-    knots = get_knots(object$data)
+    knots = get_knots(object$data), block_var = object$threads$block_var
   )
   newdata
 }
@@ -662,4 +676,37 @@ current_data2 <- function(object, newdata2 = NULL, skip_validation = FALSE, ...)
     data2 <- validate_newdata2(newdata2, object = object, ...)
   }
   data2
+}
+
+# Resolve scheduling IDs independently of model-frame predictor variables.
+block_ids <- function(data, block_var) {
+  if (!block_var %in% names(data)) {
+    stop2("Block column '", block_var, "' must be present in data.")
+  }
+  blocks <- data[[block_var]]
+  if (!(is.character(blocks) || is.numeric(blocks) || is.factor(blocks)) ||
+      !is.null(dim(blocks)) || !length(blocks) || anyNA(blocks) ||
+      (is.numeric(blocks) && any(!is.finite(blocks)))) {
+    stop2("Block column must contain nonmissing finite IDs.")
+  }
+  if (anyDuplicated(rle(match(blocks, unique(blocks)))$values)) {
+    stop2("Each block must occupy contiguous rows; interleaved blocks are unsupported.")
+  }
+  blocks
+}
+
+# Only used for block threading. The ordinary validator remains responsible for
+# all model preprocessing; retain the scheduling column without changing terms.
+validate_block_data <- function(data, block_var, ...) {
+  data <- as.data.frame(data)
+  blocks <- block_ids(data, block_var)
+  out <- validate_data(data, ...)
+  if (nrow(out) != length(blocks) || length(attr(out, "na.action")) ||
+      length(attr(out, "old_order"))) {
+    stop2("Block threading does not support missing-row removal or reordering.")
+  }
+  if (!block_var %in% names(out)) {
+    out[[block_var]] <- blocks
+  }
+  out
 }

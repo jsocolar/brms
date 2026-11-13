@@ -257,7 +257,8 @@ update.brmsfit <- function(object, formula., newdata = NULL,
     object$data2 <- validate_data2(dots$data2, bterms = bterms)
     object$data <- validate_data(
       dots$data, bterms = bterms, data2 = object$data2,
-      knots = dots$knots, drop_unused_levels = dots$drop_unused_levels
+      knots = dots$knots, drop_unused_levels = dots$drop_unused_levels,
+      block_var = validate_threads(dots$threads)$block_var
     )
     bframe <- brmsframe(bterms, data = object$data)
     object$prior <- .validate_prior(
