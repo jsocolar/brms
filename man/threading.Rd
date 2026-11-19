@@ -4,10 +4,22 @@
 \alias{threading}
 \title{Threading in Stan}
 \usage{
-threading(threads = NULL, grainsize = NULL, static = FALSE, force = FALSE)
+threading(threads = NULL, grainsize = NULL, static = FALSE, force = FALSE, block_var = NULL)
 }
 \arguments{
 \item{threads}{Number of threads to use in within-chain parallelization.}
+
+\item{block_var}{Optional name of a data column containing block IDs, one per
+input row. The column is retained even if absent from the formula. Blocks must
+be contiguous. Experimental support is limited to single-response vectorized
+custom families with predictors supported by ordinary threading, including
+splines, monotonic effects and nonlinear formulas. Nonlinear expressions must
+preserve their meaning on arbitrary chunks; rowwise expressions do, but vector
+reductions such as means may not.
+Missing-row removal, response subsetting and automatic reordering are rejected.
+Grainsize counts blocks. The likelihood must handle arbitrary complete-block
+chunks. Use explicit \code{[slice]} auxiliary indices for row-aligned inputs.
+Distribute large blocks throughout the row order, preserving within-block order.}
 
 \item{grainsize}{Number of observations evaluated together in one chunk on
 one of the CPUs used for threading. If \code{NULL} (the default),

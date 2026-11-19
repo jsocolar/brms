@@ -539,7 +539,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       data, bterms = bterms,
       data2 = data2, knots = knots,
       drop_unused_levels = drop_unused_levels,
-      data_name = substitute_name(data)
+      data_name = substitute_name(data), block_var = threads$block_var
     )
     bframe <- brmsframe(bterms, data)
     prior <- .validate_prior(
